@@ -1,0 +1,20 @@
+{
+	"folders":
+	[
+		{
+			"path": "."
+		}
+	], 
+	"build_systems" : [
+		{
+		"name": "compile kilo",
+		"shell_cmd" : "build.bat", 
+		"file_regex": "^(..[^:]*):([0-9]+):?([0-9]+)?:? (.*)$"
+		},
+
+		{
+		"name": "compile kilo and run",
+		"shell_cmd" : "../build.bat & demo.exe"
+		}
+	]
+}

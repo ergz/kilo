@@ -1,0 +1,28 @@
+{
+	"selector" : "source.c",
+
+	"quiet": false,
+
+	"shell" : true,
+
+	"working_dir" : "$file_path/..",
+
+	"file_regex": "^(..[^:]*):([0-9]+):?([0-9]+)?:? (.*)$",
+
+	"variants": [
+		{
+		"name": "Compile",
+		"shell_cmd" : "build.bat"
+		},
+
+		{
+		"name": "Compile & Run",
+		"shell_cmd" : "../build.bat & demo.exe"
+		},
+
+		{
+		"name": "Release",
+		"shell_cmd" : "bash build.bat \"$file_name\" \"$file_base_name\" Release"
+		}
+	]
+}
