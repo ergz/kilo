@@ -5,6 +5,10 @@
 #include <termios.h>
 #include <stdlib.h>
 
+/*** DEFINES ***/
+
+#define CTRL_KEY(k) ((k) & 0x1f)
+
 /*** DATA ***/
 
 // create a struct for the original termios, we will want to reset 
@@ -15,6 +19,9 @@ struct termios orig_termios;
 
 void die(const char *s) 
 {
+	write(STDOUT_FILENO, "\x1b[2J", 4);
+	write(STDOUT_FILENO, "\x1b[H", 3);
+
 	perror(s);
 	exit(1);
 }
@@ -63,6 +70,52 @@ void enable_raw_mode()
 	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
 }
 
+char editor_read_key() 
+{
+	int nread;
+	char c;
+	while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
+		if (nread == -1 && errno != EAGAIN) die("read");
+	}
+	return c;
+}
+
+/*** INPUT ***/
+void editor_process_keypress() 
+{
+	char c = editor_read_key();
+
+	switch(c) {
+		case CTRL_KEY('q'): {
+			write(STDOUT_FILENO, "\x1b[2J", 4);
+			write(STDOUT_FILENO, "\x1b[H", 3);
+			exit(0);
+			break;
+		}
+	}
+}
+
+/*** OUTPUT ***/
+
+void editor_draw_rows() 
+{
+	int y;
+	for (y = 0; y < 24; y++) {
+		write(STDOUT_FILENO, "~\r\n", 3);
+	}
+}
+
+void editor_refresh_screen() 
+{
+	write(STDOUT_FILENO, "\x1b[2J", 4);
+	write(STDOUT_FILENO, "\x1b[H", 3);
+
+	editor_draw_rows();
+
+	write(STDOUT_FILENO, "\x1b[H", 3);
+}
+
+
 /*** INIT ***/
 
 int main() 
@@ -71,15 +124,11 @@ int main()
 	enable_raw_mode();
 
 	while (1) {
-		char c = '\0';
-		if (read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) die("read");
-		if (iscntrl(c)) {
-			printf("%d\r\n", c);
-		} else {
-			printf("%d '(%c)'\r\n", c, c);
-		}
+		editor_refresh_screen();
+		editor_process_keypress();
 
-		if (c == 'q') break;
+
+		write(STDOUT_FILENO, "\x1b[H", 3);
 	}
 
 	return 0;
