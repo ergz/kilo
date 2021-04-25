@@ -4,14 +4,18 @@
 #include <unistd.h>
 #include <termios.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
 /*** DEFINES ***/
 
 #define CTRL_KEY(k) ((k) & 0x1f)
+#define KILO_VERSION "0.0.1"
+
 
 /*** DATA ***/
 
 struct editor_config {
+	int cursor_x, cursor_y;
 	int screenrows;
 	int screencols;
 	struct termios orig_termios;
@@ -96,17 +100,89 @@ char editor_read_key()
 	while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
 		if (nread == -1 && errno != EAGAIN) die("read");
 	}
-	return c;
+
+	if (c == '\x1b') {
+		char seq[3];
+
+		if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+		if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+
+		if (seq[0] == '[') {
+			switch(seq[1]) {
+				case 'A': {
+					return 'w';
+				}
+				case 'B': {
+					return 's';
+				}
+				case 'C': {
+					return 'd';
+				}
+				case 'D': {
+					return 'a';
+				}
+				
+			}
+		}
+		return '\x1b';
+	} else {
+		return c;
+	}
 }
 
 struct abuf {
 	char *b;
 	int len;
-}
+};
 
 #define ABUF_INIT {NULL, 0}
 
+void buffer_append(struct abuf *ab, const char *s, int len) 
+{
+	// void *realloc( void *ptr, size_t new_size );
+	char *new  = realloc(ab->b, ab->len + len);
+
+	if (new == NULL) return;
+
+	// copy into new the string s at the adress after the length of 
+	// what was already in there
+	// void* memcpy( void *dest, const void *src, size_t count );
+	memcpy(&new[ab->len], s, len);
+
+	// update the ab struct to new mem and length
+	ab->b = new;
+	ab->len += len;
+}
+
+void buffer_free(struct abuf *ab) 
+{
+	free(ab->b);
+}
+
 /*** INPUT ***/
+
+void editor_move_cursor(char key) 
+{
+	switch(key) {
+		case 'a': {
+			E.cursor_x--;
+			break;
+		}
+		case 'd': {
+			E.cursor_x++;
+			break;
+		}
+		case 'w': {
+			E.cursor_y--;
+			break;
+		}
+		case 's': {
+			E.cursor_y++;
+			break;
+		}
+	}
+}
+
 void editor_process_keypress() 
 {
 	char c = editor_read_key();
@@ -118,19 +194,44 @@ void editor_process_keypress()
 			exit(0);
 			break;
 		}
+		case 'w':
+		case 's':
+		case 'a':
+		case 'd': {
+			editor_move_cursor(c);
+			break;
+		}
 	}
 }
 
 /*** OUTPUT ***/
 
-void editor_draw_rows() 
+void editor_draw_rows(struct abuf *ab) 
 {
 	int y;
 	for (y = 0; y < E.screenrows; y++) {
-		write(STDOUT_FILENO, "~", 1);
 
+		// go down 1/3 of the screen to print the message out
+		if (y == E.screenrows / 3) {
+			char welcome[80];
+			int welcomelen = snprintf(welcome, sizeof(welcome), 
+				"Kilo editor --version %s", KILO_VERSION);
+
+			if (welcomelen > E.screencols) welcomelen = E.screencols;
+			int padding = (E.screencols - welcomelen) / 2;
+			if (padding) {
+				buffer_append(ab, "~", 1);
+				padding--;
+			}
+			while (padding--) buffer_append(ab, " ", 1);
+			buffer_append(ab, welcome, welcomelen);
+		} else {
+			buffer_append(ab, "~", 1);
+		}
+
+		buffer_append(ab, "\x1b[K", 3);
 		if (y < E.screenrows - 1) {
-			write(STDOUT_FILENO, "\r\n", 2);
+			buffer_append(ab, "\r\n", 2);
 		}
 	}
 
@@ -138,12 +239,21 @@ void editor_draw_rows()
 
 void editor_refresh_screen() 
 {
-	write(STDOUT_FILENO, "\x1b[2J", 4);
-	write(STDOUT_FILENO, "\x1b[H", 3);
+	struct abuf ab = ABUF_INIT;
 
-	editor_draw_rows();
+	buffer_append(&ab, "\x1b[?25l", 6);
+	buffer_append(&ab, "\x1b[H", 3);
 
-	write(STDOUT_FILENO, "\x1b[H", 3);
+	editor_draw_rows(&ab);
+
+	char buf[32];
+	snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.cursor_y+1, E.cursor_x+1);
+	buffer_append(&ab, buf, strlen(buf));
+
+	buffer_append(&ab, "\x1b[?25h", 6);
+
+	write(STDOUT_FILENO, ab.b, ab.len);
+	buffer_free(&ab);
 }
 
 
@@ -151,6 +261,10 @@ void editor_refresh_screen()
 
 void init_editor() 
 {
+	E.cursor_x = 0;
+	E.cursor_y = 0;
+
+
 	if (term_get_window_size(&E.screenrows, &E.screencols) == -1) die("term_get_window_size");
 }
 
